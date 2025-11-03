@@ -92,6 +92,7 @@
     let currentFloor = 1;
     let gameRunning = true;
     let lastMeleeAttackTime = 0; 
+    let animationFrameId = null; // Store the ID for the animation frame
 
     // --- Utility Classes and Functions (Dungeon Generation) ---
     class Room {
@@ -167,7 +168,6 @@
             const newY = this.y + dy;
             if (newX >= 0 && newX < MAP_WIDTH && newY >= 0 && newY < MAP_HEIGHT) {
                 if (map[newY][newX] === 1) return false;
-
                 const collisionWithEnemy = enemies.some(e => Math.floor(e.x) === newX && Math.floor(e.y) === newY);
                 if (collisionWithEnemy) return false;
                 
@@ -212,14 +212,10 @@
         }
         levelUp() {
             this.level += 1;
-            // XP formula for next level is exponential
             this.xpToNextLevel = Math.floor(100 * Math.pow(2, this.level - 1)); 
-            
-            // Stats increase exponentially based on level
             this.damage = Math.floor(this.baseDamage * Math.pow(1.1, this.level - 1)); 
             this.maxHp = Math.floor(this.baseHp * Math.pow(1.2, this.level - 1));
             this.hp = this.maxHp; 
-            
             updateUI();
         }
     }
@@ -232,7 +228,6 @@
         this.speed = type === 'melee' ? 0.03 : 0.02; 
         this.cooldown = 0;
         this.damage = type === 'melee' ? 5 : 3;
-        // BUG FIX: XP value is fixed base amount scaling linearly with floor, not exponentially
         this.xpValue = 10 + (currentFloor - 1) * 5; 
         this.coinsValue = Math.floor(Math.random() * 5) + 1 + currentFloor;
       }
@@ -241,14 +236,15 @@
         const dy = player.y - this.y;
         const dist = Math.hypot(dx, dy);
 
-        // BUG FIX: Ranged enemies now move too, but stop when in range (dist < 6)
+        // Movement logic for both melee (always move) and ranged (move if far)
         if (dist > 1.5 && (this.type === 'melee' || dist > 6)) { 
             const moveX = (dx / dist) * this.speed;
             const moveY = (dy / dist) * this.speed;
 
-            // BUG FIX: Basic wall collision check for smooth moving enemies
-            // Check potential movement delta against map tiles
-            if (map[Math.floor(this.y + moveY)]?.[Math.floor(this.x + moveX)] === 0) {
+            // BUG FIX: More robust wall collision check for enemies
+            const nextTileX = Math.floor(this.x + moveX);
+            const nextTileY = Math.floor(this.y + moveY);
+            if (nextTileX >= 0 && nextTileX < MAP_WIDTH && nextTileY >= 0 && nextTileY < MAP_HEIGHT && map[nextTileY][nextTileX] === 0) {
                 this.x += moveX;
                 this.y += moveY;
             }
@@ -279,26 +275,22 @@
       }
 
       update() {
-        // Calculate potential next position
         const nextX = this.x + this.dx;
         const nextY = this.y + this.dy;
-
         const tileX = Math.floor(nextX);
         const tileY = Math.floor(nextY);
 
-        // BUG FIX: Reworked collision detection for projectiles for reliability
         // Check map boundaries and wall collision BEFORE moving
         if (tileX < 0 || tileX >= MAP_WIDTH || tileY < 0 || tileY >= MAP_HEIGHT || map[tileY][tileX] === 1) {
             return false; 
         }
 
-        // Check for player collision
+        // Check for player collision using the next predicted position
         if (Math.floor(nextX) === player.x && Math.floor(nextY) === player.y) {
             player.takeDamage(this.damage);
             return false;
         }
         
-        // If no collision, update position
         this.x = nextX;
         this.y = nextY;
         return true; 
@@ -324,8 +316,7 @@
                 
                 const tooClose = enemies.some(e => Math.hypot(e.x - x, e.y - y) < ENEMY_MIN_SPAWN_DIST) || 
                                  Math.hypot(player.x - x, player.y - y) < ENEMY_MIN_SPAWN_DIST;
-                
-                // Ensure spawn point is a floor tile (0) and not too close to other entities
+
                 if (!tooClose && map[y][x] === 0) { 
                     const type = Math.random() > 0.7 ? 'ranged' : 'melee';
                     enemies.push(new Enemy(x, y, type));
@@ -344,6 +335,7 @@
         for (let x = 0; x < VIEWPORT_WIDTH_TILES; x++) {
           const mapX = cameraX + x;
           const mapY = cameraY + y;
+          
           if (mapX >= 0 && mapX < MAP_WIDTH && mapY >= 0 && mapY < MAP_HEIGHT) {
             const tileType = map[mapY][mapX];
             if (tileType === 1) ctx.fillStyle = "#444";
@@ -380,6 +372,10 @@
     
     function gameOver() {
         gameRunning = false;
+        // Stop the animation loop immediately when game over
+        if (animationFrameId) {
+            cancelAnimationFrame(animationFrameId);
+        }
         ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.fillStyle = 'white';
@@ -402,7 +398,6 @@
                 if (dist > 1.5) { 
                     return true;
                 } else {
-                    // Enemies die instantly to a punch for now (no HP system yet)
                     player.addXP(enemy.xpValue);
                     player.coins += enemy.coinsValue;
                     updateUI();
@@ -456,21 +451,19 @@
     function gameLoop(timestamp) {
         update(timestamp);
         draw();
-        if (gameRunning) {
-            requestAnimationFrame(gameLoop);
-        }
+        // Store the ID of the next frame request
+        animationFrameId = requestAnimationFrame(gameLoop);
     }
 
     // --- Initialization ---
 
     generateDungeon();
     spawnEnemies();
-    // BUG FIX: Start the player at true Level 1 (do not call levelUp() immediately)
-    // The constructor already sets initial level 1 stats.
+    // Ensure the player starts at true level 1, with 0 XP and 0 Coins
     updateUI(); 
     
     // Start the game loop
-    requestAnimationFrame(gameLoop);
+    animationFrameId = requestAnimationFrame(gameLoop);
 
   </script>
 </body>
