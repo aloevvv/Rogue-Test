@@ -77,7 +77,6 @@
     const VIEWPORT_HEIGHT_TILES = canvas.height / TILE_SIZE;
     const MOVE_DELAY_MS = 100;
     const ENEMY_MIN_SPAWN_DIST = 2.5; 
-    const MELEE_ATTACK_COOLDOWN_MS = 1000;
 
     // Game State
     let map = [];
@@ -91,27 +90,39 @@
     let roomsList = [];
     let currentFloor = 1;
     let gameRunning = true;
-    let lastMeleeAttackTime = 0; 
-    let animationFrameId = null; // Store the ID for the animation frame
 
     // --- Utility Classes and Functions (Dungeon Generation) ---
+    // (Room, carveRoom, carveTunnel, carveH, carveV functions remain the same as previous step)
     class Room {
       constructor(x, y, w, h) {
-        this.x1 = x; this.y1 = y; this.x2 = x + w; this.y2 = y + h;
+        this.x1 = x; this.y1 = y;
+        this.x2 = x + w; this.y2 = y + h;
       }
-      center() { return [ Math.floor((this.x1 + this.x2) / 2), Math.floor((this.y1 + this.y2) / 2) ]; }
-      intersects(other) { return (this.x1 <= other.x2 && this.x2 >= other.x1 && this.y1 <= other.y2 && this.y2 >= other.y1); }
+      center() {
+        return [ Math.floor((this.x1 + this.x2) / 2), Math.floor((this.y1 + this.y2) / 2) ];
+      }
+      intersects(other) {
+        return (this.x1 <= other.x2 && this.x2 >= other.x1 && this.y1 <= other.y2 && this.y2 >= other.y1);
+      }
     }
-    function carveRoom(room) { for (let y = room.y1 + 1; y < room.y2; y++) for (let x = room.x1 + 1; x < room.x2; x++) map[y][x] = 0; }
-    function carveTunnel(x1, y1, x2, y2) { if (Math.random() < 0.5) { carveH(x1, x2, y1); carveV(y1, y2, x2); } else { carveV(y1, y2, x1); carveH(x1, x2, y2); } }
-    function carveH(x1, x2, y) { for (let x = Math.min(x1, x2); x <= Math.max(x1, x2); x++) map[y][x] = 0; }
-    function carveV(y1, y2, x) { for (let y = Math.min(y1, y2); y <= Math.max(y1, y2); y++) map[y][x] = 0; }
+    function carveRoom(room) {
+      for (let y = room.y1 + 1; y < room.y2; y++) for (let x = room.x1 + 1; x < room.x2; x++) map[y][x] = 0;
+    }
+    function carveTunnel(x1, y1, x2, y2) {
+      if (Math.random() < 0.5) { carveH(x1, x2, y1); carveV(y1, y2, x2); } else { carveV(y1, y2, x1); carveH(x1, x2, y2); }
+    }
+    function carveH(x1, x2, y) {
+      for (let x = Math.min(x1, x2); x <= Math.max(x1, x2); x++) map[y][x] = 0;
+    }
+    function carveV(y1, y2, x) {
+      for (let y = Math.min(y1, y2); y <= Math.max(y1, y2); y++) map[y][x] = 0;
+    }
 
     function generateDungeon() {
       map = Array.from({ length: MAP_HEIGHT }, () => Array(MAP_WIDTH).fill(1));
       roomsList = [];
       enemies = [];
-      projectiles = []; 
+      projectiles = []; // Clear projectiles when generating new floor
 
       for (let i = 0; i < MAX_ROOMS; i++) {
         let w = ROOM_MIN_SIZE + Math.floor(Math.random() * (ROOM_MAX_SIZE - ROOM_MIN_SIZE));
@@ -131,17 +142,22 @@
       }
       
       if (roomsList.length > 0) {
-          const [playerX, playerY] = roomsList.center(); 
+          const [playerX, playerY] = roomsList[0].center(); 
           if (!player) {
+              // Create player for the first time
               player = new Player(playerX, playerY, "#00ff00");
           } else {
+              // Move existing player to the new location
               player.x = playerX;
               player.y = playerY;
           }
+
           player.updateCamera();
           
+          // Place stairs in the last room
           const lastRoom = roomsList[roomsList.length - 1];
           const [stairsX, stairsY] = lastRoom.center();
+          // We can use a special tile ID for stairs, e.g., 2
           map[stairsY][stairsX] = 2; 
       }
     }
@@ -167,7 +183,9 @@
             const newX = this.x + dx;
             const newY = this.y + dy;
             if (newX >= 0 && newX < MAP_WIDTH && newY >= 0 && newY < MAP_HEIGHT) {
-                if (map[newY][newX] === 1) return false;
+                if (map[newY][newX] === 1) return false; // Collision with wall
+
+                // Check if moving into an enemy tile (basic collision for tile-based movement)
                 const collisionWithEnemy = enemies.some(e => Math.floor(e.x) === newX && Math.floor(e.y) === newY);
                 if (collisionWithEnemy) return false;
                 
@@ -175,6 +193,7 @@
                 this.y = newY;
                 this.updateCamera();
 
+                // Check if on stairs (Tile ID 2)
                 if (map[this.y][this.x] === 2) {
                     goToNextFloor();
                 }
@@ -212,10 +231,15 @@
         }
         levelUp() {
             this.level += 1;
+            // Exponentially increase required XP: e.g., 100, 200, 400, 800...
             this.xpToNextLevel = Math.floor(100 * Math.pow(2, this.level - 1)); 
+            
+            // Exponentially increase stats: e.g., Base * Level multiplier
+            // Using a simple multiplier here, can be more complex formula
             this.damage = Math.floor(this.baseDamage * Math.pow(1.1, this.level - 1)); 
             this.maxHp = Math.floor(this.baseHp * Math.pow(1.2, this.level - 1));
-            this.hp = this.maxHp; 
+            this.hp = this.maxHp; // Heal to full on level up
+            
             updateUI();
         }
     }
@@ -228,34 +252,30 @@
         this.speed = type === 'melee' ? 0.03 : 0.02; 
         this.cooldown = 0;
         this.damage = type === 'melee' ? 5 : 3;
-        this.xpValue = 10 + (currentFloor - 1) * 5; 
-        this.coinsValue = Math.floor(Math.random() * 5) + 1 + currentFloor;
+        this.xpValue = currentFloor * 10; // XP scales with floor
+        this.coinsValue = Math.floor(Math.random() * 5) + 1 + currentFloor; // Coins scale with floor
       }
+      // update and draw functions remain similar to the previous step
       update(player) {
         const dx = player.x - this.x;
         const dy = player.y - this.y;
         const dist = Math.hypot(dx, dy);
 
-        // Movement logic for both melee (always move) and ranged (move if far)
-        if (dist > 1.5 && (this.type === 'melee' || dist > 6)) { 
-            const moveX = (dx / dist) * this.speed;
-            const moveY = (dy / dist) * this.speed;
-
-            // BUG FIX: More robust wall collision check for enemies
-            const nextTileX = Math.floor(this.x + moveX);
-            const nextTileY = Math.floor(this.y + moveY);
-            if (nextTileX >= 0 && nextTileX < MAP_WIDTH && nextTileY >= 0 && nextTileY < MAP_HEIGHT && map[nextTileY][nextTileX] === 0) {
-                this.x += moveX;
-                this.y += moveY;
-            }
-        }
-        
-        if (dist < 6 && this.type === 'ranged' && this.cooldown <= 0) {
+        if (dist < 6) { 
+          if (this.type === 'melee') {
+            this.x += dx / dist * this.speed;
+            this.y += dy / dist * this.speed;
+          } else if (this.type === 'ranged' && this.cooldown <= 0) {
             projectiles.push(new Projectile(this.x, this.y, dx / dist, dy / dist, this.damage));
             this.cooldown = 100;
+          }
         }
-        
         if (this.cooldown > 0) this.cooldown--;
+
+        // Melee collision check with player
+        if (Math.floor(this.x) === player.x && Math.floor(this.y) === player.y && this.type === 'melee') {
+            player.takeDamage(this.damage / 10); 
+        }
       }
 
       draw() {
@@ -275,24 +295,23 @@
       }
 
       update() {
-        const nextX = this.x + this.dx;
-        const nextY = this.y + this.dy;
-        const tileX = Math.floor(nextX);
-        const tileY = Math.floor(nextY);
+        this.x += this.dx;
+        this.y += this.dy;
 
-        // Check map boundaries and wall collision BEFORE moving
+        const tileX = Math.floor(this.x);
+        const tileY = Math.floor(this.y);
+
+        // Check for wall collision (stop at walls)
         if (tileX < 0 || tileX >= MAP_WIDTH || tileY < 0 || tileY >= MAP_HEIGHT || map[tileY][tileX] === 1) {
             return false; 
         }
 
-        // Check for player collision using the next predicted position
-        if (Math.floor(nextX) === player.x && Math.floor(nextY) === player.y) {
+        // Check for player collision
+        if (Math.floor(this.x) === player.x && Math.floor(this.y) === player.y) {
             player.takeDamage(this.damage);
             return false;
         }
         
-        this.x = nextX;
-        this.y = nextY;
         return true; 
       }
 
@@ -313,11 +332,10 @@
             while(spawnAttempts < 5 && !spawned){
                 let x = room.x1 + 1 + Math.floor(Math.random() * (room.x2 - room.x1 - 2));
                 let y = room.y1 + 1 + Math.floor(Math.random() * (room.y2 - room.y1 - 2));
-                
                 const tooClose = enemies.some(e => Math.hypot(e.x - x, e.y - y) < ENEMY_MIN_SPAWN_DIST) || 
                                  Math.hypot(player.x - x, player.y - y) < ENEMY_MIN_SPAWN_DIST;
 
-                if (!tooClose && map[y][x] === 0) { 
+                if (!tooClose && map[y][x] === 0) { // Also ensure we aren't spawning on stairs/walls
                     const type = Math.random() > 0.7 ? 'ranged' : 'melee';
                     enemies.push(new Enemy(x, y, type));
                     spawned = true;
@@ -339,8 +357,9 @@
           if (mapX >= 0 && mapX < MAP_WIDTH && mapY >= 0 && mapY < MAP_HEIGHT) {
             const tileType = map[mapY][mapX];
             if (tileType === 1) ctx.fillStyle = "#444";
-            else if (tileType === 2) ctx.fillStyle = "#000088";
-            else ctx.fillStyle = "#ccc";
+            else if (tileType === 2) ctx.fillStyle = "#000088"; // Stairs color (Dark Blue)
+            else ctx.fillStyle = "#ccc"; // Floor color
+
             ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
           }
         }
@@ -372,10 +391,6 @@
     
     function gameOver() {
         gameRunning = false;
-        // Stop the animation loop immediately when game over
-        if (animationFrameId) {
-            cancelAnimationFrame(animationFrameId);
-        }
         ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.fillStyle = 'white';
@@ -398,6 +413,7 @@
                 if (dist > 1.5) { 
                     return true;
                 } else {
+                    // Enemy "dies" when punched (no enemy HP system yet)
                     player.addXP(enemy.xpValue);
                     player.coins += enemy.coinsValue;
                     updateUI();
@@ -435,35 +451,29 @@
         // --- Entity Updates ---
         enemies.forEach(enemy => enemy.update(player));
         projectiles = projectiles.filter(p => p.update());
-
-        // Throttled Melee Damage Application
-        if (deltaTime - lastMeleeAttackTime >= MELEE_ATTACK_COOLDOWN_MS) {
-            enemies.forEach(enemy => {
-                if (Math.floor(enemy.x) === player.x && Math.floor(enemy.y) === player.y && enemy.type === 'melee') {
-                    player.takeDamage(enemy.damage);
-                    lastMeleeAttackTime = deltaTime;
-                }
-            });
-        }
     }
     
     // Main continuous loop
     function gameLoop(timestamp) {
         update(timestamp);
         draw();
-        // Store the ID of the next frame request
-        animationFrameId = requestAnimationFrame(gameLoop);
+        if (gameRunning) {
+            requestAnimationFrame(gameLoop);
+        }
     }
 
     // --- Initialization ---
 
     generateDungeon();
     spawnEnemies();
-    // Ensure the player starts at true level 1, with 0 XP and 0 Coins
+    // Initialize player level/xp/coins UI with starting values
+    player.levelUp(); 
+    player.xp = 0;
+    player.coins = 0;
     updateUI(); 
     
     // Start the game loop
-    animationFrameId = requestAnimationFrame(gameLoop);
+    requestAnimationFrame(gameLoop);
 
   </script>
 </body>
