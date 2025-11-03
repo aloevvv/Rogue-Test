@@ -32,22 +32,24 @@
     const MAX_ROOMS = 8;
     const ROOM_MIN_SIZE = 5;
     const ROOM_MAX_SIZE = 10;
-    
-    // Viewport constants
     const VIEWPORT_WIDTH_TILES = canvas.width / TILE_SIZE;
     const VIEWPORT_HEIGHT_TILES = canvas.height / TILE_SIZE;
-    // Movement rate limiting
-    const MOVE_DELAY_MS = 100; // Milliseconds to wait between moves while held down
+    const MOVE_DELAY_MS = 100;
 
     // Game State
     let map = Array.from({ length: MAP_HEIGHT }, () =>
-      Array(MAP_WIDTH).fill(1) // 1 = wall, 0 = floor
+      Array(MAP_WIDTH).fill(1)
     );
     let player;
     let cameraX = 0;
     let cameraY = 0;
     const pressedKeys = {};
     let lastMoveTime = 0;
+    
+    // New game state variables for enemies/projectiles
+    let enemies = [];
+    let projectiles = [];
+    let roomsList = []; // Need to store rooms to spawn enemies into
 
     // --- Utility Classes and Functions (Dungeon Generation) ---
 
@@ -58,23 +60,25 @@
         this.x2 = x + w;
         this.y2 = y + h;
       }
-
       center() {
         return [
           Math.floor((this.x1 + this.x2) / 2),
           Math.floor((this.y1 + this.y2) / 2),
         ];
       }
-
       intersects(other) {
         return (
-          this.x1 <= other.x2 &&
-          this.x2 >= other.x1 &&
-          this.y1 <= other.y2 &&
-          this.y2 >= other.y1
+          this.x1 <= other.x2 && this.x2 >= other.x1 &&
+          this.y1 <= other.y2 && this.y2 >= other.y1
         );
       }
     }
+
+    // (Helper carve functions omitted for brevity, they are unchanged from the previous code block)
+    function carveRoom(room) { /* ... */ }
+    function carveTunnel(x1, y1, x2, y2) { /* ... */ }
+    function carveH(x1, x2, y) { /* ... */ }
+    function carveV(y1, y2, x) { /* ... */ }
 
     function carveRoom(room) {
       for (let y = room.y1 + 1; y < room.y2; y++) {
@@ -107,28 +111,27 @@
     }
 
     function generateDungeon() {
-      let rooms = [];
-
+      roomsList = []; // Clear rooms list
       for (let i = 0; i < MAX_ROOMS; i++) {
         let w = ROOM_MIN_SIZE + Math.floor(Math.random() * (ROOM_MAX_SIZE - ROOM_MIN_SIZE));
         let h = ROOM_MIN_SIZE + Math.floor(Math.random() * (ROOM_MAX_SIZE - ROOM_MIN_SIZE));
         let x = Math.floor(Math.random() * (MAP_WIDTH - w - 1));
         let y = Math.floor(Math.random() * (MAP_HEIGHT - h - 1));
-
         let newRoom = new Room(x, y, w, h);
 
-        if (rooms.every(r => !newRoom.intersects(r))) {
+        if (roomsList.every(r => !newRoom.intersects(r))) {
           carveRoom(newRoom);
-          if (rooms.length > 0) {
-            let [prevX, prevY] = rooms[rooms.length - 1].center();
+          if (roomsList.length > 0) {
+            let [prevX, prevY] = roomsList[roomsList.length - 1].center();
             let [newX, newY] = newRoom.center();
             carveTunnel(prevX, prevY, newX, newY);
           }
-          rooms.push(newRoom);
+          roomsList.push(newRoom);
         }
       }
-      if (rooms.length > 0) {
-          const [playerX, playerY] = rooms[0].center(); // Place in first room
+      if (roomsList.length > 0) {
+          // Place player in the center of the first room
+          const [playerX, playerY] = roomsList[0].center(); 
           player = new Player(playerX, playerY, "#00ff00");
       }
     }
@@ -141,28 +144,25 @@
             this.y = y;
             this.color = color;
         }
-        
         move(dx, dy) {
             const newX = this.x + dx;
             const newY = this.y + dy;
-            
+            // Check map boundaries and if it's a floor tile (0)
             if (newX >= 0 && newX < MAP_WIDTH && newY >= 0 && newY < MAP_HEIGHT && map[newY][newX] === 0) {
+                // Also need to check collision with enemies if they are tile-based, but AI code uses float positions.
                 this.x = newX;
                 this.y = newY;
                 this.updateCamera();
-                return true; // Return true if moved successfully
+                return true;
             }
             return false;
         }
-        
         updateCamera() {
             cameraX = this.x - Math.floor(VIEWPORT_WIDTH_TILES / 2);
             cameraY = this.y - Math.floor(VIEWPORT_HEIGHT_TILES / 2);
-
             cameraX = Math.max(0, Math.min(cameraX, MAP_WIDTH - VIEWPORT_WIDTH_TILES));
             cameraY = Math.max(0, Math.min(cameraY, MAP_HEIGHT - VIEWPORT_HEIGHT_TILES));
         }
-
         draw() {
             const screenX = (this.x - cameraX) * TILE_SIZE;
             const screenY = (this.y - cameraY) * TILE_SIZE;
@@ -171,6 +171,86 @@
         }
     }
 
+    // --- Enemy & Projectile Management (AI Code Implementation) ---
+
+    class Enemy {
+      constructor(x, y, type) {
+        // Use floating point coordinates as specified in AI code
+        this.x = x + 0.5; 
+        this.y = y + 0.5; 
+        this.type = type; // 'melee' or 'ranged'
+        // Speeds adjusted slightly for roguelike feel where speed is per frame/tick
+        this.speed = type === 'melee' ? 0.03 : 0.02; 
+        this.cooldown = 0;
+      }
+
+      update(player) {
+        const dx = player.x - this.x;
+        const dy = player.y - this.y;
+        const dist = Math.hypot(dx, dy);
+
+        if (dist < 6) { // danger radius
+          if (this.type === 'melee') {
+            // Simple movement, ignoring map collision for now as provided by AI code
+            this.x += dx / dist * this.speed;
+            this.y += dy / dist * this.speed;
+          } else if (this.type === 'ranged' && this.cooldown <= 0) {
+            projectiles.push(new Projectile(this.x, this.y, dx / dist, dy / dist));
+            this.cooldown = 100; // frames
+          }
+        }
+        if (this.cooldown > 0) this.cooldown--;
+      }
+
+      draw() {
+        // Draw relative to camera position, centering the enemy visually
+        const screenX = (this.x - cameraX) * TILE_SIZE - TILE_SIZE / 2;
+        const screenY = (this.y - cameraY) * TILE_SIZE - TILE_SIZE / 2;
+        ctx.fillStyle = this.type === 'melee' ? '#f00' : '#0ff';
+        ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
+      }
+    }
+
+    class Projectile {
+      constructor(x, y, dx, dy) {
+        this.x = x;
+        this.y = y;
+        this.dx = dx * 0.1;
+        this.dy = dy * 0.1;
+      }
+
+      update() {
+        this.x += this.dx;
+        this.y += this.dy;
+        // Simple bounds check to remove projectiles off-map
+        // Note: Does not check wall collisions yet
+        if (this.x < 0 || this.x > MAP_WIDTH || this.y < 0 || this.y > MAP_HEIGHT) {
+            return false; // Signal for removal
+        }
+        return true;
+      }
+
+      draw() {
+        // Draw relative to the camera position
+        const screenX = (this.x - cameraX) * TILE_SIZE;
+        const screenY = (this.y - cameraY) * TILE_SIZE;
+        ctx.fillStyle = '#ff0';
+        ctx.fillRect(screenX, screenY, TILE_SIZE / 2, TILE_SIZE / 2);
+      }
+    }
+
+    function spawnEnemies() {
+      // Spawn enemies in subsequent rooms, not the starting room (roomsList[0])
+      for (let i = 1; i < roomsList.length; i++) {
+        const [roomCenterX, roomCenterY] = roomsList[i].center();
+        // Add some randomization around the center
+        enemies.push(new Enemy(roomCenterX + (Math.random() - 0.5), roomCenterY + (Math.random() - 0.5), 'melee'));
+        if (Math.random() > 0.5) {
+            enemies.push(new Enemy(roomCenterX + (Math.random() - 0.5), roomCenterY + (Math.random() - 0.5), 'ranged'));
+        }
+      }
+    }
+    
     // --- Drawing Functions ---
 
     function drawMap() {
@@ -190,6 +270,9 @@
     function draw() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         drawMap();
+        // Draw all entities
+        enemies.forEach(enemy => enemy.draw());
+        projectiles.forEach(p => p.draw());
         if (player) {
             player.draw();
         }
@@ -198,8 +281,18 @@
     // --- Input Handling & Game Loop ---
 
     document.addEventListener('keydown', (event) => {
-        // Track which keys are down, but don't move immediately
         pressedKeys[event.key] = true;
+        
+        // Player Attack (Space Bar)
+        if (event.key === " ") {
+            if (!player) return;
+
+            enemies = enemies.filter(enemy => {
+                const dx = enemy.x - player.x;
+                const dy = enemy.y - player.y;
+                return Math.hypot(dx, dy) > 1.5; // punch range
+            });
+        }
     });
     
     document.addEventListener('keyup', (event) => {
@@ -209,31 +302,33 @@
     function update(deltaTime) {
         if (!player) return;
 
-        // Implement movement throttling/delay here
-        if (deltaTime - lastMoveTime < MOVE_DELAY_MS) {
-            return;
-        }
-
+        // --- Player Update (throttled) ---
         let moved = false;
-        // Check standard arrow keys and WASD
-        if (pressedKeys['ArrowUp'] || pressedKeys['w']) {
-            moved = player.move(0, -1);
-        } else if (pressedKeys['ArrowDown'] || pressedKeys['s']) {
-            moved = player.move(0, 1);
-        } else if (pressedKeys['ArrowLeft'] || pressedKeys['a']) {
-            moved = player.move(-1, 0);
-        } else if (pressedKeys['ArrowRight'] || pressedKeys['d']) {
-            moved = player.move(1, 0);
+        if (deltaTime - lastMoveTime >= MOVE_DELAY_MS) {
+             if (pressedKeys['ArrowUp'] || pressedKeys['w']) {
+                moved = player.move(0, -1);
+            } else if (pressedKeys['ArrowDown'] || pressedKeys['s']) {
+                moved = player.move(0, 1);
+            } else if (pressedKeys['ArrowLeft'] || pressedKeys['a']) {
+                moved = player.move(-1, 0);
+            } else if (pressedKeys['ArrowRight'] || pressedKeys['d']) {
+                moved = player.move(1, 0);
+            }
         }
 
         if (moved) {
             lastMoveTime = deltaTime;
         }
+
+        // --- Enemy Update (continuous, not throttled) ---
+        enemies.forEach(enemy => enemy.update(player));
+
+        // --- Projectile Update & Removal ---
+        projectiles = projectiles.filter(p => p.update());
     }
     
     // Main continuous loop
     function gameLoop(timestamp) {
-        // 'timestamp' is provided by requestAnimationFrame
         update(timestamp);
         draw();
         requestAnimationFrame(gameLoop);
@@ -242,6 +337,7 @@
     // --- Initialization ---
 
     generateDungeon();
+    spawnEnemies(); // Call after dungeon generation is complete
     if (player) {
         player.updateCamera(); 
     }
