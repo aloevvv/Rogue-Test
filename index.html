@@ -7,30 +7,47 @@
     body {
       margin: 0;
       background: #111;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      overflow: hidden;
     }
     canvas {
-      display: block;
-      margin: auto;
       background: #222;
     }
   </style>
 </head>
 <body>
+  <!-- Canvas size is now the viewport size, not the full map size -->
   <canvas id="gameCanvas" width="800" height="480"></canvas>
+
   <script>
     const canvas = document.getElementById("gameCanvas");
     const ctx = canvas.getContext("2d");
 
+    // Constants
     const TILE_SIZE = 16;
     const MAP_WIDTH = 50;
     const MAP_HEIGHT = 30;
     const MAX_ROOMS = 8;
     const ROOM_MIN_SIZE = 5;
     const ROOM_MAX_SIZE = 10;
+    
+    // Viewport constants (must match canvas dimensions)
+    const VIEWPORT_WIDTH_TILES = canvas.width / TILE_SIZE;
+    const VIEWPORT_HEIGHT_TILES = canvas.height / TILE_SIZE;
 
+    // Game State
     let map = Array.from({ length: MAP_HEIGHT }, () =>
       Array(MAP_WIDTH).fill(1) // 1 = wall, 0 = floor
     );
+    let player;
+    let cameraX = 0;
+    let cameraY = 0;
+    const pressedKeys = {};
+
+    // --- Utility Classes and Functions (Dungeon Generation) ---
 
     class Room {
       constructor(x, y, w, h) {
@@ -108,20 +125,125 @@
           rooms.push(newRoom);
         }
       }
+      // Place player in the center of the first room generated
+      if (rooms.length > 0) {
+          const [playerX, playerY] = rooms[0].center();
+          player = new Player(playerX, playerY, "#00ff00");
+      }
+    }
+    
+    // --- Player Management ---
+    
+    class Player {
+        constructor(x, y, color) {
+            this.x = x;
+            this.y = y;
+            this.color = color;
+        }
+        
+        move(dx, dy) {
+            const newX = this.x + dx;
+            const newY = this.y + dy;
+            
+            // Basic collision detection: check if the new spot is a floor tile (0)
+            if (newX >= 0 && newX < MAP_WIDTH && newY >= 0 && newY < MAP_HEIGHT && map[newY][newX] === 0) {
+                this.x = newX;
+                this.y = newY;
+                // Update camera position to follow the player
+                this.updateCamera();
+            }
+        }
+        
+        updateCamera() {
+            // Keep the player centered in the viewport if possible, but clamp to map boundaries
+            cameraX = this.x - Math.floor(VIEWPORT_WIDTH_TILES / 2);
+            cameraY = this.y - Math.floor(VIEWPORT_HEIGHT_TILES / 2);
+
+            cameraX = Math.max(0, Math.min(cameraX, MAP_WIDTH - VIEWPORT_WIDTH_TILES));
+            cameraY = Math.max(0, Math.min(cameraY, MAP_HEIGHT - VIEWPORT_HEIGHT_TILES));
+        }
+
+        draw() {
+            // Draw relative to the camera position
+            const screenX = (this.x - cameraX) * TILE_SIZE;
+            const screenY = (this.y - cameraY) * TILE_SIZE;
+            ctx.fillStyle = this.color;
+            ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
+        }
     }
 
+    // --- Drawing Functions ---
+
     function drawMap() {
-      for (let y = 0; y < MAP_HEIGHT; y++) {
-        for (let x = 0; x < MAP_WIDTH; x++) {
-          ctx.fillStyle = map[y][x] === 1 ? "#444" : "#ccc";
-          ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+      // Only draw the tiles visible within the camera's viewport
+      for (let y = 0; y < VIEWPORT_HEIGHT_TILES; y++) {
+        for (let x = 0; x < VIEWPORT_WIDTH_TILES; x++) {
+          const mapX = cameraX + x;
+          const mapY = cameraY + y;
+          
+          if (mapX >= 0 && mapX < MAP_WIDTH && mapY >= 0 && mapY < MAP_HEIGHT) {
+            ctx.fillStyle = map[mapY][mapX] === 1 ? "#444" : "#ccc";
+            ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+          }
         }
       }
     }
+    
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        drawMap();
+        if (player) {
+            player.draw();
+        }
+    }
+    
+    // --- Input Handling ---
 
-    // Main execution
+    // Use keydown for movement to make it snappy, but only register once per press
+    document.addEventListener('keydown', (event) => {
+        if (!player) return;
+
+        // Prevent moving continuously if key is held down
+        if (pressedKeys[event.key]) return;
+        pressedKeys[event.key] = true;
+
+        switch (event.key) {
+            case 'ArrowUp':
+            case 'w':
+                player.move(0, -1);
+                break;
+            case 'ArrowDown':
+            case 's':
+                player.move(0, 1);
+                break;
+            case 'ArrowLeft':
+            case 'a':
+                player.move(-1, 0);
+                break;
+            case 'ArrowRight':
+            case 'd':
+                player.move(1, 0);
+                break;
+        }
+        // Immediately redraw after a move
+        draw();
+    });
+    
+    // Use keyup to allow key presses again
+    document.addEventListener('keyup', (event) => {
+        delete pressedKeys[event.key];
+    });
+
+
+    // --- Initialization ---
+
     generateDungeon();
-    drawMap();
+    // Initialize the camera position when the game starts
+    if (player) {
+        player.updateCamera(); 
+    }
+    draw(); // Initial draw of the world and player
+
   </script>
 </body>
 </html>
