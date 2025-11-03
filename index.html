@@ -56,6 +56,16 @@
       <div class="stat">COINS: <span id="player-coins" class="coins"></span></div>
   </div>
 
+  <div id="skill-popup">
+    <h2>Game Over</h2>
+    <p>Floors Reached: <span id="floor-reached-display"></span></p>
+    <p>You earned <span id="shard-count">0</span> total coins this run.</p>
+    <p>Spend your coins on permanent upgrades.</p>
+    <div id="skill-tree">
+    </div>
+    <button onclick="startNewGame()" class="skill-button" style="margin-top: 20px;">Start New Run</button>
+  </div>
+
   <script>
     const canvas = document.getElementById("gameCanvas");
     const ctx = canvas.getContext("2d");
@@ -345,7 +355,42 @@
         }
       }
     }
-    
+
+    function generateSkillTree(points) {
+  const tree = document.getElementById("skill-tree");
+  tree.innerHTML = "";
+
+  const skills = [
+    { name: "Power I", effect: "+1 permanent damage", cost: 1 },
+    { name: "Vitality I", effect: "+10 max HP", cost: 1 },
+    { name: "Greed I", effect: "+10% coin gain", cost: 1 },
+    { name: "Speed I", effect: "+10% move speed", cost: 1 },
+    { name: "Power II", effect: "+2 permanent damage", cost: 2 },
+    { name: "Vitality II", effect: "+20 max HP", cost: 2 },
+    { name: "Greed II", effect: "+20% coin gain", cost: 2 },
+    { name: "Speed II", effect: "+20% move speed", cost: 2 },
+  ];
+
+  skills.forEach((skill, i) => {
+    const btn = document.createElement("button");
+    btn.textContent = skill.name;
+    btn.title = skill.effect;
+    btn.style.margin = "10px";
+    btn.style.padding = "10px";
+    btn.style.background = "#333";
+    btn.style.color = "#fff";
+    btn.style.border = "1px solid #666";
+    btn.style.cursor = "pointer";
+
+    if (skill.cost > points) {
+      btn.disabled = true;
+      btn.style.opacity = 0.5;
+    }
+
+    tree.appendChild(btn);
+  });
+}
+
     // --- Drawing & UI Functions ---
 
     function drawMap() {
@@ -389,15 +434,22 @@
         }
     }
     
-    function gameOver() {
-        gameRunning = false;
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = 'white';
-        ctx.font = '48px monospace';
-        ctx.textAlign = 'center';
-        ctx.fillText('Game Over', canvas.width / 2, canvas.height / 2);
-    }
+   function gameOver() {
+  gameRunning = false;
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = 'white';
+  ctx.font = '48px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('Game Over', canvas.width / 2, canvas.height / 2);
+
+  const shards = player.coins;
+  const points = Math.floor(shards / 1000);
+  document.getElementById("shard-count").textContent = shards;
+  document.getElementById("point-count").textContent = points;
+  document.getElementById("skill-popup").style.display = "block";
+  generateSkillTree(points);
+}
 
     // --- Input Handling & Game Loop ---
 
