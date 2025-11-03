@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>8Bit’s Adventure</title>
+  <link rel="icon" type="image/png" href="favicon.png">
+  <style>
+    canvas { background: #737373; display: block; margin: 2em auto; }
+  </style>
+</head>
+<body>
+  <canvas id="game" width="640" height="480"></canvas>
+  <script>
+    <body>
+  <canvas id="game" width="640" height="480"></canvas>
+  </div>
+
+  // The new fixed UI bar at the bottom -->
+  <div id="game-hud">
+    <div class="hud-section" id="stats">
+      <p>Stats</p>
+    </div>
+    <div class="hud-section" id="player-status">
+      <p>Player</p>
+      <div id="hp-bar-container">
+        <div id="hp-bar"></div>
+        <div id="hp-text">8/8</div>
+      </div>
+    </div>
+    <div class="hud-section" id="inventory">
+      <p>Inventory</p>
+    </div>
+  </div>
+    
+#game-hud {
+  position: fixed; /* Fixes the element relative to the viewport */
+  bottom: 0; /* Positions it at the bottom of the screen */
+  left: 0;
+  width: 100%;
+  background-color: #222; /* Dark background color */
+  color: white;
+  display: flex; /* Uses Flexbox for horizontal layout */
+  justify-content: space-around; /* Distributes sections evenly */
+  align-items: center; /* Aligns items vertically */
+  padding: 10px;
+  box-sizing: border-box; /* Includes padding in the total width */
+  font-family: sans-serif;
+  border-top: 2px solid white; /* Adds a border to connect to the canvas visually */
+}
+
+.hud-section {
+  text-align: center;
+  padding: 0 1em;
+}
+
+#player-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+#hp-bar-container {
+  width: 150px;
+  height: 20px;
+  background-color: #555;
+  border: 1px solid white;
+  position: relative;
+}
+
+#hp-bar {
+  width: 100%; /* Default width for full health */
+  height: 100%;
+  background-color: green;
+  transition: width 0.5s linear; /* Smooth transition for HP changes */
+}
+
+#hp-text {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 0.8em;
+  text-shadow: 1px 1px 2px black; /* Improves readability over the bar */
+}
+
+// Add these variables near the top of your script
+const hpBar = document.getElementById('hp-bar');
+const hpText = document.getElementById('hp-text');
+
+let maxHealth = 8;
+let currentHealth = 8;
+
+function updateHp(newHealth) {
+  if (newHealth < 0) newHealth = 0;
+  if (newHealth > maxHealth) newHealth = maxHealth;
+
+  currentHealth = newHealth;
+
+  // Calculate the new width percentage
+  const newWidth = (currentHealth / maxHealth) * 100;
+  hpBar.style.width = `${newWidth}%`;
+  hpText.textContent = `${currentHealth}/${maxHealth}`;
+}
+
+// Example usage: You can call this function whenever the player takes damage
+function takeDamage(amount) {
+  updateHp(currentHealth - amount);
+}
+
+// You can test it by adding a call to it somewhere, like when the game is over
+window.addEventListener('keydown', function(e) {
+    }
+  }
+  draw();
+});
+
+    
+  <script>
+    // Canvas setup
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+
+    // Character setup
+    let x = 150, y = 50;
+    const speed = 10;
+    const size = 60;
+
+    // Character image setup (optional)
+    const useImage = true;
+    const img = new Image();
+    img.src = '8bit.png';
+
+    // Wall definitions (edit these to match your background art)
+    const walls = [
+      { x: 0, y: 0, width: 640, height: 32 },         // Top wall
+      { x: 0, y: 448, width: 640, height: 32 },       // Bottom wall
+      { x: 268, y: 150, width: 32, height: 200 },         // Left Arcade 
+      { x: 0, y: 0, width: 32, height: 480 },         // Left wall
+      // Add more walls as needed!
+    ];
+
+    // Collision detection
+    function isCollidingWithWall(newX, newY, size) {
+      for (const wall of walls) {
+        if (
+          newX < wall.x + wall.width &&
+          newX + size > wall.x &&
+          newY < wall.y + wall.height &&
+          newY + size > wall.y
+        ) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    // Draw everything (only after image loads)
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(bgImg, 0, 0, canvas.width, canvas.height);
+
+      // Draw walls (semi-transparent, for debugging)
+      ctx.fillStyle = "rgba(0,0,0,0.0)";
+      for (const wall of walls) {
+        ctx.fillRect(wall.x, wall.y, wall.width, wall.height);
+      }
+
+      // Draw character (image or blue square)
+      if (useImage && img.complete && img.naturalWidth > 0) {
+        ctx.drawImage(img, x, y, size, size);
+      } else {
+        ctx.fillStyle = "#0090ff";
+        ctx.fillRect(x, y, size, size);
+      }
+    }
+
+    // Background image setup: ONLY draw and allow movement after it loads
+    const bgImg = new Image();
+    bgImg.src = "arcadebg.png";
+    bgImg.onload = function() {
+      draw(); // Only draw after background loads!
+    };
+
+    // Movement handling (only works after image loads)
+    window.addEventListener('keydown', function(e) {
+      if (!bgImg.complete || bgImg.naturalWidth === 0) return; // Wait for image
+      let nextX = x, nextY = y;
+      if (e.key === 'ArrowLeft') nextX -= speed;
+      if (e.key === 'ArrowRight') nextX += speed;
+      if (e.key === 'ArrowUp') nextY -= speed;
+      if (e.key === 'ArrowDown') nextY += speed;
+      if (!isCollidingWithWall(nextX, nextY, size)) {
+        x = nextX;
+        y = nextY;
+      }
+      draw();
+    });
+  </script>
+</body>
+</html>
