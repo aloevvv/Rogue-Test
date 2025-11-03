@@ -20,6 +20,13 @@
       background: #222;
       border: 1px solid #444;
     }
+    #ui-floor-counter {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        font-size: 24px;
+        color: #fff;
+    }
     #ui-container {
         margin-top: 10px;
         display: flex;
@@ -31,17 +38,22 @@
     }
     .stat {
         font-size: 18px;
+        margin: 0 10px;
     }
-    .hp-bar {
-        color: #0f0;
-    }
+    .hp-bar { color: #0f0; }
+    .xp-bar { color: #00f; }
+    .coins { color: #ff0; }
   </style>
 </head>
 <body>
+  <div id="ui-floor-counter">Floors: <span id="floor-count">1</span></div>
   <canvas id="gameCanvas" width="800" height="480"></canvas>
   <div id="ui-container">
-      <div class="stat">HP: <span id="player-hp" class="hp-bar">100/100</span></div>
-      <div class="stat">Damage: <span id="player-dmg">1</span></div>
+      <div class="stat">HP: <span id="player-hp" class="hp-bar"></span></div>
+      <div class="stat">DMG: <span id="player-dmg"></span></div>
+      <div class="stat">LVL: <span id="player-lvl"></span></div>
+      <div class="stat">XP: <span id="player-xp" class="xp-bar"></span></div>
+      <div class="stat">COINS: <span id="player-coins" class="coins"></span></div>
   </div>
 
   <script>
@@ -49,6 +61,10 @@
     const ctx = canvas.getContext("2d");
     const uiHp = document.getElementById("player-hp");
     const uiDmg = document.getElementById("player-dmg");
+    const uiLvl = document.getElementById("player-lvl");
+    const uiXp = document.getElementById("player-xp");
+    const uiCoins = document.getElementById("player-coins");
+    const uiFloorCount = document.getElementById("floor-count");
 
     // Constants
     const TILE_SIZE = 16;
@@ -60,12 +76,10 @@
     const VIEWPORT_WIDTH_TILES = canvas.width / TILE_SIZE;
     const VIEWPORT_HEIGHT_TILES = canvas.height / TILE_SIZE;
     const MOVE_DELAY_MS = 100;
-    const ENEMY_MIN_SPAWN_DIST = 2.5; // Minimum distance between spawned enemies
+    const ENEMY_MIN_SPAWN_DIST = 2.5; 
 
     // Game State
-    let map = Array.from({ length: MAP_HEIGHT }, () =>
-      Array(MAP_WIDTH).fill(1)
-    );
+    let map = [];
     let player;
     let cameraX = 0;
     let cameraY = 0;
@@ -74,9 +88,11 @@
     let enemies = [];
     let projectiles = [];
     let roomsList = [];
+    let currentFloor = 1;
+    let gameRunning = true;
 
     // --- Utility Classes and Functions (Dungeon Generation) ---
-
+    // (Room, carveRoom, carveTunnel, carveH, carveV functions remain the same as previous step)
     class Room {
       constructor(x, y, w, h) {
         this.x1 = x; this.y1 = y;
@@ -103,7 +119,11 @@
     }
 
     function generateDungeon() {
+      map = Array.from({ length: MAP_HEIGHT }, () => Array(MAP_WIDTH).fill(1));
       roomsList = [];
+      enemies = [];
+      projectiles = []; // Clear projectiles when generating new floor
+
       for (let i = 0; i < MAX_ROOMS; i++) {
         let w = ROOM_MIN_SIZE + Math.floor(Math.random() * (ROOM_MAX_SIZE - ROOM_MIN_SIZE));
         let h = ROOM_MIN_SIZE + Math.floor(Math.random() * (ROOM_MAX_SIZE - ROOM_MIN_SIZE));
@@ -120,11 +140,33 @@
           roomsList.push(newRoom);
         }
       }
+      
       if (roomsList.length > 0) {
-          const [playerX, playerY] = roomsList[0].center(); // Ensure player starts in room 0
-          player = new Player(playerX, playerY, "#00ff00");
+          const [playerX, playerY] = roomsList[0].center(); 
+          if (!player) {
+              // Create player for the first time
+              player = new Player(playerX, playerY, "#00ff00");
+          } else {
+              // Move existing player to the new location
+              player.x = playerX;
+              player.y = playerY;
+          }
+
           player.updateCamera();
+          
+          // Place stairs in the last room
+          const lastRoom = roomsList[roomsList.length - 1];
+          const [stairsX, stairsY] = lastRoom.center();
+          // We can use a special tile ID for stairs, e.g., 2
+          map[stairsY][stairsX] = 2; 
       }
+    }
+
+    function goToNextFloor() {
+        currentFloor++;
+        generateDungeon();
+        spawnEnemies();
+        updateUI();
     }
     
     // --- Player Management ---
@@ -132,22 +174,30 @@
     class Player {
         constructor(x, y, color) {
             this.x = x; this.y = y; this.color = color;
-            this.hp = 100;
-            this.maxHp = 100;
-            this.damage = 10; // Increased player damage for impact
+            this.baseHp = 100; this.maxHp = 100; this.hp = 100;
+            this.baseDamage = 10; this.damage = 10;
+            this.level = 1; this.xp = 0; this.xpToNextLevel = 100;
+            this.coins = 0;
         }
         move(dx, dy) {
             const newX = this.x + dx;
             const newY = this.y + dy;
-            if (newX >= 0 && newX < MAP_WIDTH && newY >= 0 && newY < MAP_HEIGHT && map[newY][newX] === 0) {
-                // Check if moving into an enemy tile
+            if (newX >= 0 && newX < MAP_WIDTH && newY >= 0 && newY < MAP_HEIGHT) {
+                if (map[newY][newX] === 1) return false; // Collision with wall
+
+                // Check if moving into an enemy tile (basic collision for tile-based movement)
                 const collisionWithEnemy = enemies.some(e => Math.floor(e.x) === newX && Math.floor(e.y) === newY);
-                if (!collisionWithEnemy) {
-                    this.x = newX;
-                    this.y = newY;
-                    this.updateCamera();
-                    return true;
+                if (collisionWithEnemy) return false;
+                
+                this.x = newX;
+                this.y = newY;
+                this.updateCamera();
+
+                // Check if on stairs (Tile ID 2)
+                if (map[this.y][this.x] === 2) {
+                    goToNextFloor();
                 }
+                return true;
             }
             return false;
         }
@@ -171,6 +221,27 @@
             }
             updateUI();
         }
+        addXP(amount) {
+            this.xp += amount;
+            while (this.xp >= this.xpToNextLevel) {
+                this.xp -= this.xpToNextLevel;
+                this.levelUp();
+            }
+            updateUI();
+        }
+        levelUp() {
+            this.level += 1;
+            // Exponentially increase required XP: e.g., 100, 200, 400, 800...
+            this.xpToNextLevel = Math.floor(100 * Math.pow(2, this.level - 1)); 
+            
+            // Exponentially increase stats: e.g., Base * Level multiplier
+            // Using a simple multiplier here, can be more complex formula
+            this.damage = Math.floor(this.baseDamage * Math.pow(1.1, this.level - 1)); 
+            this.maxHp = Math.floor(this.baseHp * Math.pow(1.2, this.level - 1));
+            this.hp = this.maxHp; // Heal to full on level up
+            
+            updateUI();
+        }
     }
 
     // --- Enemy & Projectile Management ---
@@ -181,8 +252,10 @@
         this.speed = type === 'melee' ? 0.03 : 0.02; 
         this.cooldown = 0;
         this.damage = type === 'melee' ? 5 : 3;
+        this.xpValue = currentFloor * 10; // XP scales with floor
+        this.coinsValue = Math.floor(Math.random() * 5) + 1 + currentFloor; // Coins scale with floor
       }
-
+      // update and draw functions remain similar to the previous step
       update(player) {
         const dx = player.x - this.x;
         const dy = player.y - this.y;
@@ -190,7 +263,6 @@
 
         if (dist < 6) { 
           if (this.type === 'melee') {
-            // Very simple AI movement towards player, still doesn't handle map collision well with float movement
             this.x += dx / dist * this.speed;
             this.y += dy / dist * this.speed;
           } else if (this.type === 'ranged' && this.cooldown <= 0) {
@@ -198,14 +270,11 @@
             this.cooldown = 100;
           }
         }
-
         if (this.cooldown > 0) this.cooldown--;
 
-        // Check for collision with player for melee damage application (if they occupy the same tile)
+        // Melee collision check with player
         if (Math.floor(this.x) === player.x && Math.floor(this.y) === player.y && this.type === 'melee') {
-            // In a continuous game loop, this check might need refinement to happen less frequently (e.g., every half second)
-            // For simplicity here, we assume contact means damage
-            player.takeDamage(this.damage / 10); // Continuous tick damage
+            player.takeDamage(this.damage / 10); 
         }
       }
 
@@ -234,17 +303,16 @@
 
         // Check for wall collision (stop at walls)
         if (tileX < 0 || tileX >= MAP_WIDTH || tileY < 0 || tileY >= MAP_HEIGHT || map[tileY][tileX] === 1) {
-            return false; // Remove projectile
+            return false; 
         }
 
         // Check for player collision
-        // Note: Player uses integer coordinates, Projectile uses float
         if (Math.floor(this.x) === player.x && Math.floor(this.y) === player.y) {
             player.takeDamage(this.damage);
-            return false; // Remove projectile
+            return false;
         }
         
-        return true; // Keep projectile
+        return true; 
       }
 
       draw() {
@@ -256,25 +324,18 @@
     }
 
     function spawnEnemies() {
-      // Start loop from room 1 (skip player start room 0)
       for (let i = 1; i < roomsList.length; i++) {
         const room = roomsList[i];
-        
-        // Try spawning a few enemies per room
         for(let j = 0; j < 3; j++){
             let spawnAttempts = 0;
             let spawned = false;
-
             while(spawnAttempts < 5 && !spawned){
-                // Pick a random spot inside the room walls
                 let x = room.x1 + 1 + Math.floor(Math.random() * (room.x2 - room.x1 - 2));
                 let y = room.y1 + 1 + Math.floor(Math.random() * (room.y2 - room.y1 - 2));
-
-                // Check distance from existing enemies and player
                 const tooClose = enemies.some(e => Math.hypot(e.x - x, e.y - y) < ENEMY_MIN_SPAWN_DIST) || 
                                  Math.hypot(player.x - x, player.y - y) < ENEMY_MIN_SPAWN_DIST;
 
-                if (!tooClose) {
+                if (!tooClose && map[y][x] === 0) { // Also ensure we aren't spawning on stairs/walls
                     const type = Math.random() > 0.7 ? 'ranged' : 'melee';
                     enemies.push(new Enemy(x, y, type));
                     spawned = true;
@@ -292,8 +353,13 @@
         for (let x = 0; x < VIEWPORT_WIDTH_TILES; x++) {
           const mapX = cameraX + x;
           const mapY = cameraY + y;
+          
           if (mapX >= 0 && mapX < MAP_WIDTH && mapY >= 0 && mapY < MAP_HEIGHT) {
-            ctx.fillStyle = map[mapY][mapX] === 1 ? "#444" : "#ccc";
+            const tileType = map[mapY][mapX];
+            if (tileType === 1) ctx.fillStyle = "#444";
+            else if (tileType === 2) ctx.fillStyle = "#000088"; // Stairs color (Dark Blue)
+            else ctx.fillStyle = "#ccc"; // Floor color
+
             ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
           }
         }
@@ -314,13 +380,17 @@
         if (player) {
             uiHp.textContent = `${player.hp}/${player.maxHp}`;
             uiDmg.textContent = player.damage;
+            uiLvl.textContent = player.level;
+            uiXp.textContent = `${player.xp}/${player.xpToNextLevel}`;
+            uiCoins.textContent = player.coins;
+            uiFloorCount.textContent = currentFloor;
+
             uiHp.style.color = player.hp > (player.maxHp / 2) ? '#0f0' : player.hp > 0 ? '#ff0' : '#f00';
         }
     }
     
     function gameOver() {
-        // Stop the game loop, display Game Over message
-        cancelAnimationFrame(gameLoop); 
+        gameRunning = false;
         ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.fillStyle = 'white';
@@ -332,22 +402,22 @@
     // --- Input Handling & Game Loop ---
 
     document.addEventListener('keydown', (event) => {
+        if (!gameRunning) return;
         pressedKeys[event.key] = true;
         
-        // Player Attack (Space Bar)
         if (event.key === " ") {
-            if (!player || player.hp <= 0) return;
-
             enemies = enemies.filter(enemy => {
                 const dx = enemy.x - player.x;
                 const dy = enemy.y - player.y;
                 const dist = Math.hypot(dx, dy);
-                if (dist > 1.5) { // punch range
+                if (dist > 1.5) { 
                     return true;
                 } else {
-                    // Deal damage to the enemy here
-                    // Since enemies don't have HP yet in this iteration, they just die instantly as before.
-                    return false; // Remove enemy
+                    // Enemy "dies" when punched (no enemy HP system yet)
+                    player.addXP(enemy.xpValue);
+                    player.coins += enemy.coinsValue;
+                    updateUI();
+                    return false; 
                 }
             });
         }
@@ -358,7 +428,7 @@
     });
 
     function update(deltaTime) {
-        if (!player || player.hp <= 0) return;
+        if (!player || !gameRunning) return;
 
         // --- Player Update (throttled) ---
         let moved = false;
@@ -378,10 +448,8 @@
             lastMoveTime = deltaTime;
         }
 
-        // --- Enemy Update (continuous, not throttled) ---
+        // --- Entity Updates ---
         enemies.forEach(enemy => enemy.update(player));
-
-        // --- Projectile Update & Removal ---
         projectiles = projectiles.filter(p => p.update());
     }
     
@@ -389,14 +457,20 @@
     function gameLoop(timestamp) {
         update(timestamp);
         draw();
-        requestAnimationFrame(gameLoop);
+        if (gameRunning) {
+            requestAnimationFrame(gameLoop);
+        }
     }
 
     // --- Initialization ---
 
     generateDungeon();
     spawnEnemies();
-    updateUI(); // Initial UI draw
+    // Initialize player level/xp/coins UI with starting values
+    player.levelUp(); 
+    player.xp = 0;
+    player.coins = 0;
+    updateUI(); 
     
     // Start the game loop
     requestAnimationFrame(gameLoop);
