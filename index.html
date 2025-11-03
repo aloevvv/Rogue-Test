@@ -8,22 +8,47 @@
       margin: 0;
       background: #111;
       display: flex;
+      flex-direction: column;
       justify-content: center;
       align-items: center;
       height: 100vh;
       overflow: hidden;
+      color: white;
+      font-family: monospace;
     }
     canvas {
       background: #222;
+      border: 1px solid #444;
+    }
+    #ui-container {
+        margin-top: 10px;
+        display: flex;
+        justify-content: space-around;
+        width: 800px;
+        padding: 10px;
+        background-color: #333;
+        border-radius: 5px;
+    }
+    .stat {
+        font-size: 18px;
+    }
+    .hp-bar {
+        color: #0f0;
     }
   </style>
 </head>
 <body>
   <canvas id="gameCanvas" width="800" height="480"></canvas>
+  <div id="ui-container">
+      <div class="stat">HP: <span id="player-hp" class="hp-bar">100/100</span></div>
+      <div class="stat">Damage: <span id="player-dmg">1</span></div>
+  </div>
 
   <script>
     const canvas = document.getElementById("gameCanvas");
     const ctx = canvas.getContext("2d");
+    const uiHp = document.getElementById("player-hp");
+    const uiDmg = document.getElementById("player-dmg");
 
     // Constants
     const TILE_SIZE = 16;
@@ -35,6 +60,7 @@
     const VIEWPORT_WIDTH_TILES = canvas.width / TILE_SIZE;
     const VIEWPORT_HEIGHT_TILES = canvas.height / TILE_SIZE;
     const MOVE_DELAY_MS = 100;
+    const ENEMY_MIN_SPAWN_DIST = 2.5; // Minimum distance between spawned enemies
 
     // Game State
     let map = Array.from({ length: MAP_HEIGHT }, () =>
@@ -45,80 +71,45 @@
     let cameraY = 0;
     const pressedKeys = {};
     let lastMoveTime = 0;
-    
-    // New game state variables for enemies/projectiles
     let enemies = [];
     let projectiles = [];
-    let roomsList = []; // Need to store rooms to spawn enemies into
+    let roomsList = [];
 
     // --- Utility Classes and Functions (Dungeon Generation) ---
 
     class Room {
       constructor(x, y, w, h) {
-        this.x1 = x;
-        this.y1 = y;
-        this.x2 = x + w;
-        this.y2 = y + h;
+        this.x1 = x; this.y1 = y;
+        this.x2 = x + w; this.y2 = y + h;
       }
       center() {
-        return [
-          Math.floor((this.x1 + this.x2) / 2),
-          Math.floor((this.y1 + this.y2) / 2),
-        ];
+        return [ Math.floor((this.x1 + this.x2) / 2), Math.floor((this.y1 + this.y2) / 2) ];
       }
       intersects(other) {
-        return (
-          this.x1 <= other.x2 && this.x2 >= other.x1 &&
-          this.y1 <= other.y2 && this.y2 >= other.y1
-        );
+        return (this.x1 <= other.x2 && this.x2 >= other.x1 && this.y1 <= other.y2 && this.y2 >= other.y1);
       }
     }
-
-    // (Helper carve functions omitted for brevity, they are unchanged from the previous code block)
-    function carveRoom(room) { /* ... */ }
-    function carveTunnel(x1, y1, x2, y2) { /* ... */ }
-    function carveH(x1, x2, y) { /* ... */ }
-    function carveV(y1, y2, x) { /* ... */ }
-
     function carveRoom(room) {
-      for (let y = room.y1 + 1; y < room.y2; y++) {
-        for (let x = room.x1 + 1; x < room.x2; x++) {
-          map[y][x] = 0;
-        }
-      }
+      for (let y = room.y1 + 1; y < room.y2; y++) for (let x = room.x1 + 1; x < room.x2; x++) map[y][x] = 0;
     }
-
     function carveTunnel(x1, y1, x2, y2) {
-      if (Math.random() < 0.5) {
-        carveH(x1, x2, y1);
-        carveV(y1, y2, x2);
-      } else {
-        carveV(y1, y2, x1);
-        carveH(x1, x2, y2);
-      }
+      if (Math.random() < 0.5) { carveH(x1, x2, y1); carveV(y1, y2, x2); } else { carveV(y1, y2, x1); carveH(x1, x2, y2); }
     }
-
     function carveH(x1, x2, y) {
-      for (let x = Math.min(x1, x2); x <= Math.max(x1, x2); x++) {
-        map[y][x] = 0;
-      }
+      for (let x = Math.min(x1, x2); x <= Math.max(x1, x2); x++) map[y][x] = 0;
     }
-
     function carveV(y1, y2, x) {
-      for (let y = Math.min(y1, y2); y <= Math.max(y1, y2); y++) {
-        map[y][x] = 0;
-      }
+      for (let y = Math.min(y1, y2); y <= Math.max(y1, y2); y++) map[y][x] = 0;
     }
 
     function generateDungeon() {
-      roomsList = []; // Clear rooms list
+      roomsList = [];
       for (let i = 0; i < MAX_ROOMS; i++) {
         let w = ROOM_MIN_SIZE + Math.floor(Math.random() * (ROOM_MAX_SIZE - ROOM_MIN_SIZE));
         let h = ROOM_MIN_SIZE + Math.floor(Math.random() * (ROOM_MAX_SIZE - ROOM_MIN_SIZE));
         let x = Math.floor(Math.random() * (MAP_WIDTH - w - 1));
         let y = Math.floor(Math.random() * (MAP_HEIGHT - h - 1));
         let newRoom = new Room(x, y, w, h);
-
         if (roomsList.every(r => !newRoom.intersects(r))) {
           carveRoom(newRoom);
           if (roomsList.length > 0) {
@@ -130,9 +121,9 @@
         }
       }
       if (roomsList.length > 0) {
-          // Place player in the center of the first room
-          const [playerX, playerY] = roomsList[0].center(); 
+          const [playerX, playerY] = roomsList[0].center(); // Ensure player starts in room 0
           player = new Player(playerX, playerY, "#00ff00");
+          player.updateCamera();
       }
     }
     
@@ -140,20 +131,23 @@
     
     class Player {
         constructor(x, y, color) {
-            this.x = x;
-            this.y = y;
-            this.color = color;
+            this.x = x; this.y = y; this.color = color;
+            this.hp = 100;
+            this.maxHp = 100;
+            this.damage = 10; // Increased player damage for impact
         }
         move(dx, dy) {
             const newX = this.x + dx;
             const newY = this.y + dy;
-            // Check map boundaries and if it's a floor tile (0)
             if (newX >= 0 && newX < MAP_WIDTH && newY >= 0 && newY < MAP_HEIGHT && map[newY][newX] === 0) {
-                // Also need to check collision with enemies if they are tile-based, but AI code uses float positions.
-                this.x = newX;
-                this.y = newY;
-                this.updateCamera();
-                return true;
+                // Check if moving into an enemy tile
+                const collisionWithEnemy = enemies.some(e => Math.floor(e.x) === newX && Math.floor(e.y) === newY);
+                if (!collisionWithEnemy) {
+                    this.x = newX;
+                    this.y = newY;
+                    this.updateCamera();
+                    return true;
+                }
             }
             return false;
         }
@@ -169,19 +163,24 @@
             ctx.fillStyle = this.color;
             ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
         }
+        takeDamage(amount) {
+            this.hp -= amount;
+            if (this.hp <= 0) {
+                this.hp = 0;
+                gameOver();
+            }
+            updateUI();
+        }
     }
 
-    // --- Enemy & Projectile Management (AI Code Implementation) ---
+    // --- Enemy & Projectile Management ---
 
     class Enemy {
       constructor(x, y, type) {
-        // Use floating point coordinates as specified in AI code
-        this.x = x + 0.5; 
-        this.y = y + 0.5; 
-        this.type = type; // 'melee' or 'ranged'
-        // Speeds adjusted slightly for roguelike feel where speed is per frame/tick
+        this.x = x + 0.5; this.y = y + 0.5; this.type = type;
         this.speed = type === 'melee' ? 0.03 : 0.02; 
         this.cooldown = 0;
+        this.damage = type === 'melee' ? 5 : 3;
       }
 
       update(player) {
@@ -189,21 +188,28 @@
         const dy = player.y - this.y;
         const dist = Math.hypot(dx, dy);
 
-        if (dist < 6) { // danger radius
+        if (dist < 6) { 
           if (this.type === 'melee') {
-            // Simple movement, ignoring map collision for now as provided by AI code
+            // Very simple AI movement towards player, still doesn't handle map collision well with float movement
             this.x += dx / dist * this.speed;
             this.y += dy / dist * this.speed;
           } else if (this.type === 'ranged' && this.cooldown <= 0) {
-            projectiles.push(new Projectile(this.x, this.y, dx / dist, dy / dist));
-            this.cooldown = 100; // frames
+            projectiles.push(new Projectile(this.x, this.y, dx / dist, dy / dist, this.damage));
+            this.cooldown = 100;
           }
         }
+
         if (this.cooldown > 0) this.cooldown--;
+
+        // Check for collision with player for melee damage application (if they occupy the same tile)
+        if (Math.floor(this.x) === player.x && Math.floor(this.y) === player.y && this.type === 'melee') {
+            // In a continuous game loop, this check might need refinement to happen less frequently (e.g., every half second)
+            // For simplicity here, we assume contact means damage
+            player.takeDamage(this.damage / 10); // Continuous tick damage
+        }
       }
 
       draw() {
-        // Draw relative to camera position, centering the enemy visually
         const screenX = (this.x - cameraX) * TILE_SIZE - TILE_SIZE / 2;
         const screenY = (this.y - cameraY) * TILE_SIZE - TILE_SIZE / 2;
         ctx.fillStyle = this.type === 'melee' ? '#f00' : '#0ff';
@@ -212,26 +218,36 @@
     }
 
     class Projectile {
-      constructor(x, y, dx, dy) {
-        this.x = x;
-        this.y = y;
+      constructor(x, y, dx, dy, damage) {
+        this.x = x; this.y = y;
         this.dx = dx * 0.1;
         this.dy = dy * 0.1;
+        this.damage = damage;
       }
 
       update() {
         this.x += this.dx;
         this.y += this.dy;
-        // Simple bounds check to remove projectiles off-map
-        // Note: Does not check wall collisions yet
-        if (this.x < 0 || this.x > MAP_WIDTH || this.y < 0 || this.y > MAP_HEIGHT) {
-            return false; // Signal for removal
+
+        const tileX = Math.floor(this.x);
+        const tileY = Math.floor(this.y);
+
+        // Check for wall collision (stop at walls)
+        if (tileX < 0 || tileX >= MAP_WIDTH || tileY < 0 || tileY >= MAP_HEIGHT || map[tileY][tileX] === 1) {
+            return false; // Remove projectile
         }
-        return true;
+
+        // Check for player collision
+        // Note: Player uses integer coordinates, Projectile uses float
+        if (Math.floor(this.x) === player.x && Math.floor(this.y) === player.y) {
+            player.takeDamage(this.damage);
+            return false; // Remove projectile
+        }
+        
+        return true; // Keep projectile
       }
 
       draw() {
-        // Draw relative to the camera position
         const screenX = (this.x - cameraX) * TILE_SIZE;
         const screenY = (this.y - cameraY) * TILE_SIZE;
         ctx.fillStyle = '#ff0';
@@ -240,25 +256,42 @@
     }
 
     function spawnEnemies() {
-      // Spawn enemies in subsequent rooms, not the starting room (roomsList[0])
+      // Start loop from room 1 (skip player start room 0)
       for (let i = 1; i < roomsList.length; i++) {
-        const [roomCenterX, roomCenterY] = roomsList[i].center();
-        // Add some randomization around the center
-        enemies.push(new Enemy(roomCenterX + (Math.random() - 0.5), roomCenterY + (Math.random() - 0.5), 'melee'));
-        if (Math.random() > 0.5) {
-            enemies.push(new Enemy(roomCenterX + (Math.random() - 0.5), roomCenterY + (Math.random() - 0.5), 'ranged'));
+        const room = roomsList[i];
+        
+        // Try spawning a few enemies per room
+        for(let j = 0; j < 3; j++){
+            let spawnAttempts = 0;
+            let spawned = false;
+
+            while(spawnAttempts < 5 && !spawned){
+                // Pick a random spot inside the room walls
+                let x = room.x1 + 1 + Math.floor(Math.random() * (room.x2 - room.x1 - 2));
+                let y = room.y1 + 1 + Math.floor(Math.random() * (room.y2 - room.y1 - 2));
+
+                // Check distance from existing enemies and player
+                const tooClose = enemies.some(e => Math.hypot(e.x - x, e.y - y) < ENEMY_MIN_SPAWN_DIST) || 
+                                 Math.hypot(player.x - x, player.y - y) < ENEMY_MIN_SPAWN_DIST;
+
+                if (!tooClose) {
+                    const type = Math.random() > 0.7 ? 'ranged' : 'melee';
+                    enemies.push(new Enemy(x, y, type));
+                    spawned = true;
+                }
+                spawnAttempts++;
+            }
         }
       }
     }
     
-    // --- Drawing Functions ---
+    // --- Drawing & UI Functions ---
 
     function drawMap() {
       for (let y = 0; y < VIEWPORT_HEIGHT_TILES; y++) {
         for (let x = 0; x < VIEWPORT_WIDTH_TILES; x++) {
           const mapX = cameraX + x;
           const mapY = cameraY + y;
-          
           if (mapX >= 0 && mapX < MAP_WIDTH && mapY >= 0 && mapY < MAP_HEIGHT) {
             ctx.fillStyle = map[mapY][mapX] === 1 ? "#444" : "#ccc";
             ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
@@ -270,14 +303,32 @@
     function draw() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         drawMap();
-        // Draw all entities
         enemies.forEach(enemy => enemy.draw());
         projectiles.forEach(p => p.draw());
         if (player) {
             player.draw();
         }
     }
+
+    function updateUI() {
+        if (player) {
+            uiHp.textContent = `${player.hp}/${player.maxHp}`;
+            uiDmg.textContent = player.damage;
+            uiHp.style.color = player.hp > (player.maxHp / 2) ? '#0f0' : player.hp > 0 ? '#ff0' : '#f00';
+        }
+    }
     
+    function gameOver() {
+        // Stop the game loop, display Game Over message
+        cancelAnimationFrame(gameLoop); 
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = 'white';
+        ctx.font = '48px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('Game Over', canvas.width / 2, canvas.height / 2);
+    }
+
     // --- Input Handling & Game Loop ---
 
     document.addEventListener('keydown', (event) => {
@@ -285,12 +336,19 @@
         
         // Player Attack (Space Bar)
         if (event.key === " ") {
-            if (!player) return;
+            if (!player || player.hp <= 0) return;
 
             enemies = enemies.filter(enemy => {
                 const dx = enemy.x - player.x;
                 const dy = enemy.y - player.y;
-                return Math.hypot(dx, dy) > 1.5; // punch range
+                const dist = Math.hypot(dx, dy);
+                if (dist > 1.5) { // punch range
+                    return true;
+                } else {
+                    // Deal damage to the enemy here
+                    // Since enemies don't have HP yet in this iteration, they just die instantly as before.
+                    return false; // Remove enemy
+                }
             });
         }
     });
@@ -300,7 +358,7 @@
     });
 
     function update(deltaTime) {
-        if (!player) return;
+        if (!player || player.hp <= 0) return;
 
         // --- Player Update (throttled) ---
         let moved = false;
@@ -337,10 +395,8 @@
     // --- Initialization ---
 
     generateDungeon();
-    spawnEnemies(); // Call after dungeon generation is complete
-    if (player) {
-        player.updateCamera(); 
-    }
+    spawnEnemies();
+    updateUI(); // Initial UI draw
     
     // Start the game loop
     requestAnimationFrame(gameLoop);
