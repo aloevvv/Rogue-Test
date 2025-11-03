@@ -355,6 +355,35 @@
         }
       }
     }
+    
+function startNewGame() {
+  // Reset game state
+  currentFloor = 1;
+  gameRunning = true;
+  enemies = [];
+  projectiles = [];
+  roomsList = [];
+  map = [];
+
+  // Reset player stats
+  player.hp = player.maxHp;
+  player.xp = 0;
+  player.level = 1;
+  player.xpToNextLevel = 100;
+  player.damage = player.baseDamage;
+  player.coins = 0;
+
+  // Hide skill popup
+  document.getElementById("skill-popup").style.display = "none";
+
+  // Regenerate dungeon and enemies
+  generateDungeon();
+  spawnEnemies();
+  updateUI();
+
+  // Restart game loop
+  requestAnimationFrame(gameLoop);
+}
 
     function generateSkillTree(points) {
   const tree = document.getElementById("skill-tree");
