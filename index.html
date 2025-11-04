@@ -485,7 +485,10 @@ function startNewGame() {
     document.addEventListener('keydown', (event) => {
         if (!gameRunning) return;
         pressedKeys[event.key] = true;
-        
+      
+        if (event.key === "z" || event.key === "Z") {
+  gameOver();
+}
         if (event.key === " ") {
             enemies = enemies.filter(enemy => {
                 const dx = enemy.x - player.x;
@@ -534,9 +537,6 @@ function startNewGame() {
         projectiles = projectiles.filter(p => p.update());
     }
     
-    if (key === 'x') {
-  gameOver();
-}
 
     
     // Main continuous loop
