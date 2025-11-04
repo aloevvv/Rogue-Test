@@ -534,6 +534,11 @@ function startNewGame() {
         projectiles = projectiles.filter(p => p.update());
     }
     
+    if (event.key === "z" || event.key === "Z") {
+  gameOver();
+}
+
+    
     // Main continuous loop
     function gameLoop(timestamp) {
         update(timestamp);
