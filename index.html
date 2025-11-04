@@ -261,7 +261,7 @@
         this.x = x + 0.5; this.y = y + 0.5; this.type = type;
         this.speed = type === 'melee' ? 0.03 : 0.02; 
         this.cooldown = 0;
-        this.damage = type === 'melee' ? 5 : 3;
+        this.damage = type === 'melee' ? 5 : 10;
         this.xpValue = currentFloor * 10; // XP scales with floor
         this.coinsValue = Math.floor(Math.random() * 5) + 1 + currentFloor; // Coins scale with floor
       }
@@ -277,7 +277,7 @@
             this.y += dy / dist * this.speed;
           } else if (this.type === 'ranged' && this.cooldown <= 0) {
             projectiles.push(new Projectile(this.x, this.y, dx / dist, dy / dist, this.damage));
-            this.cooldown = 100;
+            this.cooldown = 1000;
           }
         }
         if (this.cooldown > 0) this.cooldown--;
